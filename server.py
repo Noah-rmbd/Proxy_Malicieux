@@ -29,56 +29,49 @@ class ProxyServer:
         exit(0)
 
     def proxy_thread(self, clientSocket):
-        try:
-            request = clientSocket.recv(self.config['MAX_REQUEST_LEN'])
-            print(request.decode('utf-8'))
+        request = clientSocket.recv(self.config['MAX_REQUEST_LEN'])
+        print(request.decode('utf-8'))
 
-            # Parse URL
-            first_line = request.decode().split('\n')[0]
-            url = first_line.split(' ')[1]
+        # Parse URL
+        first_line = request.decode().split('\n')[0]
+        url = first_line.split(' ')[1]
 
-            http_pos = url.find("://")
-            temp = url[(http_pos+3):] if http_pos != -1 else url
+        http_pos = url.find("://")
+        temp = url[(http_pos+3):] if http_pos != -1 else url
 
-            port_pos = temp.find(":")
-            webserver_pos = temp.find("/")
-            if webserver_pos == -1:
-                webserver_pos = len(temp)
+        port_pos = temp.find(":")
+        webserver_pos = temp.find("/")
+        if webserver_pos == -1:
+            webserver_pos = len(temp)
 
-            webserver = ""
-            port = 80
-            if port_pos == -1 or webserver_pos < port_pos:
-                webserver = temp[:webserver_pos]
+        webserver = ""
+        port = 80
+        if port_pos == -1 or webserver_pos < port_pos:
+            webserver = temp[:webserver_pos]
+        else:
+            port = int(temp[port_pos+1:webserver_pos])
+            webserver = temp[:port_pos]
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((webserver, port))
+        s.sendall(request)
+
+        while True:
+            data = s.recv(self.config['MAX_REQUEST_LEN'])
+            if len(data) > 0:
+                clientSocket.send(data)
             else:
-                port = int(temp[port_pos+1:webserver_pos])
-                webserver = temp[:port_pos]
+                break
 
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(self.config['CONNECTION_TIMEOUT'])
-            s.connect((webserver, port))
-            s.sendall(request)
-
-            while True:
-                data = s.recv(self.config['MAX_REQUEST_LEN'])
-                if len(data) > 0:
-                    clientSocket.send(data)
-                else:
-                    break
-
-            s.close()
-            clientSocket.close()
-
-        except Exception as e:
-            print("Error in proxy_thread:", e)
-            clientSocket.close()
+        s.close()
+        clientSocket.close()
 
 # Exemple d'utilisation :
 if __name__ == '__main__':
     config = {
         'HOST_NAME': '127.0.0.1',
         'BIND_PORT': 8888,
-        'MAX_REQUEST_LEN': 4096,
-        'CONNECTION_TIMEOUT': 5
+        'MAX_REQUEST_LEN': 4096
     }
 
     proxy = ProxyServer(config)
