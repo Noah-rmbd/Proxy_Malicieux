@@ -38,19 +38,6 @@ class ProxyServer:
         number = int(data[idx1 + len(start):idx2])
         
         return data.replace(str(number), str(number + difference), 1)
-
-    def replace_link(self, data, old="./smiley.jpg", new="https://i.redd.it/cgefug8s28881.jpg"):
-        # count the occurences of old link
-        nb_links = data.count(old)
-        # calculate the difference of length between old and new in utf-8
-        char_diff = len(bytes(new, 'utf-8')) - len(bytes(old, 'utf-8'))
-
-        if (nb_links > 0):
-            # replace old by new
-            data = data.replace(old, new)
-            # update the content_length field
-            data = self.change_content_length(data, char_diff*nb_links)
-        return data
     
     def replace_word(self, data, old=" Stockholm", new=" Linköping"):
         # count the occurences of old word
@@ -102,16 +89,18 @@ class ProxyServer:
 
         while True:
             data = s.recv(self.config['MAX_REQUEST_LEN'])
-    
+            # if the packet contains html document, we modify it
             if len(data) > 0 and "html" in url:
-                # Converts the utf-8 data into string
+                # converts the utf-8 data into string
                 data = data.decode('utf-8', 'ignore')
+                # apply fake news to the http packet on the html document
                 data = self.apply_fake_news(data)
-                #data = self.replace_word(data)
-                #data = self.replace_link(data)
+                # converts the string into utf-8 bytes
                 data = bytes(data,  "utf-8")
-              
+                # send the packet to the client socket
                 clientSocket.send(data)
+                
+            # else we send it directly to the client socket
             elif len(data) > 0:
                 clientSocket.send(data)
             else:
