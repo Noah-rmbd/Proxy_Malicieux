@@ -46,7 +46,7 @@ class ProxyServer:
 
     def proxy_thread(self, clientSocket):
         request = clientSocket.recv(self.config['MAX_REQUEST_LEN'])
-        print("Request : \n", request.decode('utf-8'))
+        print("\nRequest : \n", request.decode('utf-8'))
 
         # Parse URL
         first_line = request.decode().split('\n')[0]
@@ -77,11 +77,16 @@ class ProxyServer:
         while True:
             data = s.recv(self.config['MAX_REQUEST_LEN'])
             if len(data) > 0 and "jpg" not in url:
-                data = str(data, "utf-8")
-                if data.find("Stockholm"):
+                # Converts the utf-8 data into string
+                data = data.decode('utf-8', 'ignore')
+                print("\nAnswer : \n", data)
+
+                if data.find("Stockholm") != -1:
                     data = data.replace("Stockholm","Linköping")
+                    x = data.find("Stockholm")
                     data = self.change_content_length(data)
-                    data = bytes(data,  "utf-8")
+
+                data = bytes(data,  "utf-8")
                 clientSocket.send(data)
             elif "jpg" in url :
                 clientSocket.send(data)
