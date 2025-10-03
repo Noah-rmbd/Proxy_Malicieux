@@ -4,18 +4,26 @@ import threading
 
 class ProxyServer:
     def __init__(self, config):
+        """Initialize proxy server with configuration settings"""
         self.config = config
+        # Create TCP socket for server
         self.serverSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Allow socket address reuse to avoid "Address already in use" errors
         self.serverSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # Bind socket to configured host and port
         self.serverSocket.bind((config['HOST_NAME'], config['BIND_PORT']))
+        # Listen for incoming connections (queue up to 10)
         self.serverSocket.listen(10)
         print("Proxy started on port", config['BIND_PORT'])
 
     def start(self):
+        """Main server loop that accepts client connections"""
         try:
             while True:
+                # Accept incoming client connection
                 clientSocket, client_address = self.serverSocket.accept()
                 print("Start thread :")
+                # Spawn new thread to handle client request (enables concurrent connections)
                 threading.Thread(
                     target=self.proxy_thread,
                     args=(clientSocket,),
@@ -25,98 +33,118 @@ class ProxyServer:
             self.shutdown()
 
     def shutdown(self, *args):
+        """Shut down the proxy server"""
         print("\nShutting down proxy...")
         self.serverSocket.close()
         exit(0)
-
+    
+    # --------------------- fake-news functions --------------------------------
     def change_content_length(self, data, difference):
+        """Update Content-Length header of the given data"""
         start = "Content-Length: "
-        # Find the index of the start and end substring
+        # Locate Content-Length header in HTTP response
         idx1 = data.find(start)
         idx2 = data.find("\r", idx1 + len(start))
-        # Find the original value
+        # Extract current content length value
         number = int(data[idx1 + len(start):idx2])
-        
+        # Replace with updated value (only first occurrence)
         return data.replace(str(number), str(number + difference), 1)
     
-    def replace_word(self, data, old=" Stockholm", new=" Linköping"):
-        # count the occurences of old word
+    def replace_word(self, data, old, new):
+        """Replace all occurrences of a word and update Content-Length accordingly"""
+        # Count the occurences of old word
         nb_words = data.count(old)
-        # calculate the difference of length between old and new in utf-8
+        # Calculate byte difference between old and new strings (UTF-8)
         char_diff = len(bytes(new, 'utf-8')) - len(bytes(old, 'utf-8'))
         
         if (nb_words > 0):
-            # replace old by new
+            # Perform string replacement
             data = data.replace(old, new)
-            # update the content_length field
+            # Adjust Content-Length header to reflect total byte change
             data = self.change_content_length(data, char_diff*nb_words)
         return data
     
     def apply_fake_news(self, data):
-        # takes an http packet as input and outputs this packet with fake news
+        """Apply content modifications to HTML responses"""
+        # Replace "Stockholm" with "Linköping"
         data = self.replace_word(data, " Stockholm", " Linköping")
+        # Replace local smiley image with trolley URL
         data = self.replace_word(data, "./smiley.jpg", "https://i.redd.it/cgefug8s28881.jpg")
-        data = self.replace_word(data, "Smiley", "Siphano")
+        # Replace "Smiley" with "Trolley"
+        data = self.replace_word(data, "Smiley", "Trolley")
         return data
 
-
+    # --------------------- main thread -------------------------------------
     def proxy_thread(self, clientSocket):
+        """Handle individual client request by forwarding to destination server"""
+        # Receive HTTP request from client
         request = clientSocket.recv(self.config['MAX_REQUEST_LEN'])
         print("\nRequest : \n", request.decode('utf-8'))
 
-        # Parse URL
+        # Parse destination server from HTTP request line
         first_line = request.decode().split('\n')[0]
         url = first_line.split(' ')[1]
+        # Strip protocol prefix (http://)
         http_pos = url.find("://")
         temp = url[(http_pos+3):] if http_pos != -1 else url
 
+        # Extract hostname and port from URL
         port_pos = temp.find(":")
         webserver_pos = temp.find("/")
         if webserver_pos == -1:
             webserver_pos = len(temp)
 
         webserver = ""
-        port = 80
+        port = 80 # Default HTTP port
         if port_pos == -1 or webserver_pos < port_pos:
+            # No explicit port specified
             webserver = temp[:webserver_pos]
         else:
+            # Port explicitly specified in URL
             port = int(temp[port_pos+1:webserver_pos])
             webserver = temp[:port_pos]
 
+        # Connect to destination web server
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((webserver, port))
+        # Forward client's request to destination server
         s.sendall(request)
 
+        # Receive and forward response data
         while True:
             data = s.recv(self.config['MAX_REQUEST_LEN'])
-            # if the packet contains html document, we modify it
+            print("la réponse : ", data)
+            # Apply content modification if response is HTML
             if len(data) > 0 and "html" in url:
-                # converts the utf-8 data into string
+                # Decode response to string
                 data = data.decode('utf-8', 'ignore')
-                # apply fake news to the http packet on the html document
+                # Apply fake news transformations
                 data = self.apply_fake_news(data)
-                # converts the string into utf-8 bytes
+                # Re-encode to bytes
                 data = bytes(data,  "utf-8")
-                # send the packet to the client socket
+                # Send modified data to client
                 clientSocket.send(data)
                 
-            # else we send it directly to the client socket
+            # Forward non-HTML data unchanged
             elif len(data) > 0:
                 clientSocket.send(data)
             else:
+                # No more data, close connections
                 break
 
         s.close()
         clientSocket.close()
 
-# Exemple d'utilisation :
+# Instantiates and run the ProxyServer
 if __name__ == '__main__':
+    # Configuration dictionary
     config = {
-        'HOST_NAME': '127.0.0.1',
-        'BIND_PORT': 8888,
-        'MAX_REQUEST_LEN': 4096
+        'HOST_NAME': '127.0.0.1',  # Localhost
+        'BIND_PORT': 8888,         # Proxy listening port
+        'MAX_REQUEST_LEN': 4096    # Maximum request/response buffer size
     }
 
     proxy = ProxyServer(config)
+    # Register signal handler for graceful shutdown
     signal.signal(signal.SIGINT, proxy.shutdown)
     proxy.start()
